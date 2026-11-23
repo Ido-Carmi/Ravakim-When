@@ -212,22 +212,143 @@ for pid, p in sorted(people.items(), key=lambda kv: kv[1]["name"]):
         if d in busy:
             busy[d].append(p)
 
-months_html = []
+CAL_CSS = """
+.rk {direction: rtl; font-family: inherit; user-select: none; -webkit-user-select: none}
+.rk .months {display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr)); gap:20px}
+.rk h3 {font-family:"Secular One",Rubik,sans-serif; font-weight:400; margin:0 0 6px; font-size:22px}
+.rk .cal {display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px}
+.rk .dow {text-align:center; font-size:13px; opacity:.65}
+.rk .day {min-height:64px; border:1px solid rgba(128,128,128,.28); border-radius:8px; padding:3px 5px;
+          display:flex; flex-direction:column; gap:2px; background:rgba(128,128,128,.06);
+          cursor:pointer; text-align:start; font:inherit; color:inherit; touch-action:manipulation}
+.rk .day:hover {border-color: rgba(128,128,128,.7)}
+.rk .day:focus-visible {outline:3px solid #3a86ff; outline-offset:1px}
+.rk .day.free {background:#fff0a3; color:#4a3d00; border-color:transparent}
+.rk .day.mine {box-shadow: inset 0 0 0 3px var(--mc)}
+.rk .day.pv-add {box-shadow: inset 0 0 0 3px var(--mc); background: color-mix(in srgb, var(--mc) 22%, transparent)}
+.rk .day.pv-del {opacity:.4}
+.rk .day.blank {visibility:hidden; cursor:default}
+.rk .n {font-weight:700; font-size:15px; line-height:1.1}
+.rk .hol {font-size:11px; color:#e5383b; font-weight:500; line-height:1.1}
+.rk .ps {display:flex; flex-wrap:wrap; gap:2px; margin-top:auto}
+.rk .p {width:15px; height:15px; border-radius:50%; font-size:9px; line-height:15px; text-align:center; color:#fff; font-weight:700}
+.rk .msg {margin:0 0 10px; padding:8px 12px; border-radius:8px; background:#ff5a4e; color:#fff; font-weight:500}
+.rk .msg:empty {display:none}
+@media (max-width:600px){ .rk .day{min-height:52px; padding:2px} .rk .p{width:11px;height:11px;font-size:0} }
+"""
+
+CAL_JS = """
+const DOW = ['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','ש׳'];
+export default function (component) {
+  const { data, setTriggerValue, parentElement } = component;
+  let root = parentElement.querySelector('.rk');
+  if (!root) { root = document.createElement('div'); root.className = 'rk'; root.dir = 'rtl'; parentElement.appendChild(root); }
+  root.style.setProperty('--mc', data.myColor || '#888');
+  root.innerHTML = '';
+  const msg = document.createElement('p'); msg.className = 'msg'; root.appendChild(msg);
+  const wrap = document.createElement('div'); wrap.className = 'months'; root.appendChild(wrap);
+  const cells = {}, order = [];
+  for (const m of data.months) {
+    const box = document.createElement('div');
+    const h = document.createElement('h3'); h.textContent = m.title; box.appendChild(h);
+    const grid = document.createElement('div'); grid.className = 'cal';
+    for (const d of DOW) { const x = document.createElement('div'); x.className = 'dow'; x.textContent = d; grid.appendChild(x); }
+    for (let i = 0; i < m.lead; i++) { const x = document.createElement('div'); x.className = 'day blank'; grid.appendChild(x); }
+    for (const day of m.days) {
+      const c = document.createElement('button'); c.type = 'button'; c.dataset.d = day.d;
+      c.className = 'day' + (day.free ? ' free' : '') + (day.mine ? ' mine' : '');
+      const n = document.createElement('span'); n.className = 'n'; n.textContent = day.n; c.appendChild(n);
+      if (day.hol) { const t = document.createElement('span'); t.className = 'hol'; t.textContent = day.hol; c.appendChild(t); }
+      const ps = document.createElement('span'); ps.className = 'ps';
+      for (const p of day.ps) { const b = document.createElement('span'); b.className = 'p'; b.style.background = p.c; b.textContent = p.i; b.title = p.t; ps.appendChild(b); }
+      c.appendChild(ps);
+      c.title = day.tip; c.setAttribute('aria-label', day.aria); c.setAttribute('aria-pressed', String(day.mine));
+      cells[day.d] = c; order.push(day.d); grid.appendChild(c);
+    }
+    box.appendChild(grid); wrap.appendChild(box);
+  }
+  const idx = Object.fromEntries(order.map((d, i) => [d, i]));
+  let drag = null;
+  const preview = () => { for (const d of order) cells[d].classList.remove('pv-add', 'pv-del');
+    if (drag) for (const d of drag.set) cells[d].classList.add(drag.mode === 'add' ? 'pv-add' : 'pv-del'); };
+  const range = (a, b) => { const [i, j] = [idx[a], idx[b]].sort((x, y) => x - y); return order.slice(i, j + 1); };
+  const send = (days, mode) => setTriggerValue('toggle', { days, mode, t: Date.now() });
+  root.onpointerdown = (e) => {
+    const c = e.target.closest('button.day'); if (!c) return;
+    if (!data.canMark) { msg.textContent = 'כדי לסמן, הצטרפו קודם (שם + צבע) בחלק העליון של הדף.'; return; }
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    drag = { mode: c.classList.contains('mine') ? 'del' : 'add', start: c.dataset.d, set: [c.dataset.d], mouse: e.pointerType === 'mouse' };
+    if (drag.mouse) e.preventDefault();
+    preview();
+  };
+  root.onpointermove = (e) => {
+    if (!drag || !drag.mouse) return;
+    const rn = root.getRootNode();
+    const el = (rn.elementFromPoint ? rn : document).elementFromPoint(e.clientX, e.clientY);
+    const c = el && el.closest ? el.closest('button.day') : null;
+    if (c && c.dataset.d) { drag.set = range(drag.start, c.dataset.d); preview(); }
+  };
+  const up = () => { if (!drag) return; const { set, mode } = drag; drag = null; send(set, mode); };
+  const cancel = () => { drag = null; preview(); };
+  root.onkeydown = (e) => {
+    const c = e.target.closest && e.target.closest('button.day');
+    if (!c || !(e.key === 'Enter' || e.key === ' ')) return;
+    e.preventDefault();
+    if (!data.canMark) { msg.textContent = 'כדי לסמן, הצטרפו קודם (שם + צבע) בחלק העליון של הדף.'; return; }
+    send([c.dataset.d], c.classList.contains('mine') ? 'del' : 'add');
+  };
+  window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', cancel);
+  return () => { window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', cancel); };
+}
+"""
+
+
+@st.cache_resource
+def calendar_component():
+    return st.components.v2.component("ravakim_calendar", css=CAL_CSS, js=CAL_JS)
+
+
+my_marks = people[me]["marks"] if me else {}
+payload = {"canMark": bool(me), "myColor": safe_color(people[me]["color"]) if me else "#888888", "months": []}
 for m, mname in MONTHS:
     days = [d for d in ALL if d.month == m]
-    cells = "".join(f'<div class="dow">{x}</div>' for x in DOW)
-    cells += '<div class="day blank"></div>' * dow(days[0])
+    out = []
     for d in days:
         b = busy[d]
+        k = d.isoformat()
+        who = ", ".join(p["name"] + (f" ({p['marks'][k]})" if p["marks"].get(k) else "") for p in b)
         free = bool(people) and not b
-        dots = "".join(
-            f'<span class="p" style="background:{safe_color(p["color"])}" '
-            f'title="{esc(p["name"] + (" — " + p["marks"][d.isoformat()] if p["marks"].get(d.isoformat()) else ""))}">'
-            f'{esc(p["name"][:1])}</span>' for p in b)
-        hol = f'<span class="hol">{HOLIDAYS[d]}</span>' if d in HOLIDAYS else ""
-        cells += f'<div class="day{" free" if free else ""}"><span class="n">{d.day}</span>{hol}<span class="ps">{dots}</span></div>'
-    months_html.append(f'<div class="month"><h3>{mname} 2027</h3><div class="cal">{cells}</div></div>')
-st.markdown(f'<div class="months">{"".join(months_html)}</div>', unsafe_allow_html=True)
+        tip = ("לא יכולים: " + who) if b else ("כולם פנויים" if free else "")
+        out.append({"d": k, "n": d.day, "hol": HOLIDAYS.get(d, ""), "free": free, "mine": k in my_marks,
+                    "tip": tip, "aria": f"{heb(d, True)}{', ' + HOLIDAYS[d] if d in HOLIDAYS else ''}. {tip}",
+                    "ps": [{"i": p["name"][:1], "c": safe_color(p["color"]),
+                            "t": p["name"] + (" — " + p["marks"][k] if p["marks"].get(k) else "")} for p in b]})
+    payload["months"].append({"title": f"{mname} 2027", "lead": dow(days[0]), "days": out})
+
+if me:
+    st.caption("לחצו על יום בלוח כדי לסמן שאתם לא יכולים בו, ושוב כדי לבטל. עם עכבר אפשר לגרור על כמה ימים ברצף. כל שינוי נשמר מיד.")
+else:
+    st.caption("כדי לסמן ימים, הצטרפו קודם עם שם וצבע.")
+res = calendar_component()(data=payload, key="calendar", on_toggle_change=lambda: None)
+hit = res.get("toggle") if res else None
+if hit and me:
+    new = dict(my_marks)
+    for k in hit.get("days", []):
+        if not isinstance(k, str):
+            continue
+        try:
+            if date.fromisoformat(k) not in busy:
+                continue
+        except ValueError:
+            continue
+        if hit.get("mode") == "add":
+            new.setdefault(k, "")
+        else:
+            new.pop(k, None)
+    if new != my_marks:
+        save_person(me, {**people[me], "marks": new})
+        st.rerun()
 st.write("")
 
 # ---------------------------------------------------------------- best dates + people
@@ -247,7 +368,7 @@ with c1, st.container(border=True):
         if runs:
             runs.sort(key=lambda r: (-(r[1] - r[0]), r[0]))
             chips = "".join(
-                f'<span class="chip free">{heb(ALL[a], True) if a == b else heb(ALL[a]) + " – " + heb(ALL[b])}'
+                f'<span class="chip free">{"<bdi>" + heb(ALL[a], True) + "</bdi>" if a == b else "<bdi>" + heb(ALL[a]) + "</bdi> – <bdi>" + heb(ALL[b]) + "</bdi>"}'
                 f' · {"יום אחד" if a == b else str(b - a + 1) + " ימים"}</span>' for a, b in runs[:8])
             st.markdown(chips, unsafe_allow_html=True)
         else:
@@ -269,22 +390,6 @@ with c2, st.container(border=True):
 if me:
     p = people[me]
     marks = dict(p["marks"])
-    st.subheader("הימים שאני לא יכול/ה")
-    st.caption("לחצו על ימים כדי לסמן או לבטל. כל שינוי נשמר מיד.")
-
-    def on_pills(month):
-        chosen = set(st.session_state[f"pills_{month}_{me}"] or [])
-        new = {k: v for k, v in marks.items() if date.fromisoformat(k).month != month}
-        for d in chosen:
-            new[d.isoformat()] = marks.get(d.isoformat(), "")
-        save_person(me, {**p, "marks": new})
-
-    for m, mname in MONTHS:
-        days = [d for d in ALL if d.month == m]
-        st.pills(mname, days, selection_mode="multi", key=f"pills_{m}_{me}",
-                 default=[d for d in days if d.isoformat() in marks],
-                 format_func=lambda d: f"{DOW[dow(d)]} {d.day}", on_change=on_pills, args=(m,))
-
     with st.expander("סימון טווח ימים בבת אחת"):
         rng = st.date_input("מתאריך עד תאריך", value=(), min_value=START, max_value=END, format="DD/MM/YYYY")
         a, b = st.columns(2)
@@ -294,14 +399,10 @@ if me:
                 marks.setdefault(d.isoformat(), "")
                 d += timedelta(1)
             save_person(me, {**p, "marks": marks})
-            for m, _ in MONTHS:
-                st.session_state.pop(f"pills_{m}_{me}", None)
             st.rerun()
         if b.button("ביטול הסימון בטווח", disabled=len(rng) != 2, use_container_width=True):
             marks = {k: v for k, v in marks.items() if not rng[0] <= date.fromisoformat(k) <= rng[1]}
             save_person(me, {**p, "marks": marks})
-            for m, _ in MONTHS:
-                st.session_state.pop(f"pills_{m}_{me}", None)
             st.rerun()
 
     if marks:
