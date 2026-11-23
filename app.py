@@ -1,8 +1,8 @@
 """רווקים לכולם — shared availability calendar (Jan–Mar 2027), Streamlit.
 
-Storage: a Google Sheet when st.secrets has `gcp_service_account` + `sheet_url`
-(needed on Streamlit Community Cloud, whose disk is wiped on restart);
-otherwise a local JSON file, for running on your own machine.
+Storage: the backend on our server (server/ravakim_api.py) when st.secrets has
+`api_url` + `api_token` (needed on Streamlit Community Cloud, whose disk is wiped
+on restart); otherwise a local JSON file, for running on your own machine.
 """
 import html
 import json
@@ -28,7 +28,6 @@ HOLIDAYS = {
 }
 PALETTE = ["#e63946", "#fb5607", "#f4a261", "#e9c46a", "#2a9d8f", "#06d6a0", "#00b4d8",
            "#3a86ff", "#4361ee", "#8338ec", "#ff006e", "#ff8fab", "#8d5a3b", "#495057"]
-HEADER = ["id", "name", "color", "marks", "updated"]
 
 
 def dow(d):  # Sunday = 0
@@ -58,49 +57,38 @@ class LocalStore:
         self.path.write_text(json.dumps(data, ensure_ascii=False, indent=1), "utf-8")
 
 
-class SheetStore:
-    def __init__(self):
-        import gspread
-        gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
-        self.ws = gc.open_by_url(st.secrets["sheet_url"]).sheet1
-        if self.ws.row_values(1) != HEADER:
-            self.ws.update(range_name="A1:E1", values=[HEADER])
+class ApiStore:
+    """The backend on the server (server/ravakim_api.py), reached with a secret token."""
+
+    def __init__(self, url, token):
+        self.url, self.token = url.rstrip("/"), token
+
+    def _call(self, method, path, body=None):
+        import urllib.request
+        req = urllib.request.Request(
+            self.url + path, method=method,
+            data=None if body is None else json.dumps(body, ensure_ascii=False).encode(),
+            headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json",
+                     "User-Agent": "ravakim-streamlit"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read() or b"{}")
 
     def load(self):
-        out = {}
-        for r in self.ws.get_all_records(expected_headers=HEADER, numericise_ignore=["all"]):
-            try:
-                marks = json.loads(r["marks"] or "{}")
-            except ValueError:
-                marks = {}
-            if r["id"]:
-                out[str(r["id"])] = {"name": str(r["name"]), "color": r["color"], "marks": marks}
-        return out
-
-    def _row(self, pid):
-        ids = self.ws.col_values(1)
-        return ids.index(pid) + 1 if pid in ids else None
+        return self._call("GET", "/people")["people"]
 
     def save(self, pid, person):
-        vals = [pid, person["name"], person["color"],
-                json.dumps(person["marks"], ensure_ascii=False), date.today().isoformat()]
-        r = self._row(pid)
-        if r:
-            self.ws.update(range_name=f"A{r}:E{r}", values=[vals])
-        else:
-            self.ws.append_row(vals, value_input_option="RAW")
+        self._call("PUT", f"/people/{pid}",
+                   {"name": person["name"], "color": person["color"], "marks": person["marks"]})
 
     def delete(self, pid):
-        r = self._row(pid)
-        if r:
-            self.ws.delete_rows(r)
+        self._call("DELETE", f"/people/{pid}")
 
 
 @st.cache_resource
 def get_store():
     try:
-        if "gcp_service_account" in st.secrets and "sheet_url" in st.secrets:
-            return SheetStore()
+        if "api_url" in st.secrets and "api_token" in st.secrets:
+            return ApiStore(st.secrets["api_url"], st.secrets["api_token"])
     except FileNotFoundError:
         pass
     return LocalStore()
