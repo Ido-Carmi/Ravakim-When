@@ -1,4 +1,4 @@
-"""רווקים לכולם — shared availability calendar (Jan–Mar 2027), Streamlit.
+"""רווקים לכולם — shared availability calendar (Jan–May 2027), Streamlit.
 
 Storage: the backend on our server (server/ravakim_api.py) when st.secrets has
 `api_url` + `api_token` (needed on Streamlit Community Cloud, whose disk is wiped
@@ -15,9 +15,9 @@ import streamlit as st
 
 st.set_page_config(page_title="רווקים לכולם", page_icon="📅", layout="wide")
 
-START, END = date(2027, 1, 1), date(2027, 3, 31)
+START, END = date(2027, 1, 1), date(2027, 5, 31)
 ALL = [START + timedelta(n) for n in range((END - START).days + 1)]
-MONTHS = [(1, "ינואר"), (2, "פברואר"), (3, "מרץ")]
+MONTHS = [(1, "ינואר"), (2, "פברואר"), (3, "מרץ"), (4, "אפריל"), (5, "מאי")]
 DOW = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"]
 HOLIDAYS = {
     date(2027, 1, 23): "ט״ו בשבט",
@@ -25,6 +25,14 @@ HOLIDAYS = {
     date(2027, 3, 22): "תענית אסתר",
     date(2027, 3, 23): "פורים",
     date(2027, 3, 24): "שושן פורים",
+    date(2027, 4, 21): "ערב פסח",
+    date(2027, 4, 22): "פסח",
+    **{date(2027, 4, d): "חול המועד פסח" for d in range(23, 28)},
+    date(2027, 4, 28): "שביעי של פסח",
+    date(2027, 5, 4): "יום השואה",
+    date(2027, 5, 11): "יום הזיכרון",
+    date(2027, 5, 12): "יום העצמאות",
+    date(2027, 5, 25): "ל״ג בעומר",
 }
 PALETTE = ["#e63946", "#fb5607", "#f4a261", "#e9c46a", "#2a9d8f", "#06d6a0", "#00b4d8",
            "#3a86ff", "#4361ee", "#8338ec", "#ff006e", "#ff8fab", "#8d5a3b", "#495057"]
@@ -138,7 +146,7 @@ st.markdown("""
 @media (max-width:600px){ .day{min-height:52px; padding:2px} .day .p{width:11px;height:11px;font-size:0} }
 </style>
 <div class="hero"><h1>רווקים לכולם</h1>
-<p>בחרו שם וצבע, וסמנו את הימים שבהם אתם <b>לא</b> יכולים (ינואר–מרץ 2027). ימים שכולם פנויים בהם נצבעים בצהוב.</p></div>
+<p>בחרו שם וצבע, וסמנו את הימים שבהם אתם <b>לא</b> יכולים (ינואר–מאי 2027). ימים שכולם פנויים בהם נצבעים בצהוב.</p></div>
 """, unsafe_allow_html=True)
 
 people = load_people()

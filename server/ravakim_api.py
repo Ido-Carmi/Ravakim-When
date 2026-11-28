@@ -22,7 +22,7 @@ TOKEN = os.environ.get("RAVAKIM_API_TOKEN", "")
 DB_PATH = os.environ.get("RAVAKIM_DB", "ravakim.db")
 PORT = int(os.environ.get("RAVAKIM_PORT", "5020"))
 
-FIRST, LAST = date(2027, 1, 1), date(2027, 3, 31)
+FIRST, LAST = date(2027, 1, 1), date(2027, 5, 31)
 ID_RE = re.compile(r"p[0-9a-f]{10}")
 COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
 MAX_PEOPLE, MAX_BODY = 200, 64 * 1024
